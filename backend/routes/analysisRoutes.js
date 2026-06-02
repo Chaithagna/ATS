@@ -14,11 +14,9 @@ const router = express.Router();
 router.post('/process', protect, async (req, res) => {
   try {
     const { resumeId, jobDescription, jobTitle } = req.body;
-
     if (!resumeId || !jobDescription) {
       return res.status(400).json({ success: false, error: 'Please provide resumeId and jobDescription' });
     }
-
     // 1. Get resume details
     const resume = await Resume.findOne({ _id: resumeId, user: req.user.id });
     if (!resume) {

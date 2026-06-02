@@ -2,18 +2,15 @@ const mongoose = require('mongoose');
 
 const connectDB = async () => {
   try {
-    const connStr = process.env.MONGO_URI || 'mongodb://localhost:27017/ats_analyzer';
-    const conn = await mongoose.connect(connStr, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
-    console.log(`[Database] MongoDB Connected: ${conn.connection.host}`);
+    const connStr = process.env.MONGO_URI;
+    if (!connStr) {
+      throw new Error('MONGO_URI is not defined');
+    }
+    const conn = await mongoose.connect(connStr);
+    console.log(`[Database] MongoDB Connected: ${conn.connection.host} | DB: ${conn.connection.name}`);
   } catch (error) {
     console.error(`[Database Error] Connection failed: ${error.message}`);
-    // Safe fallback: do not crash server in sandbox mode
-    if (process.env.NODE_ENV === 'production') {
-      process.exit(1);
-    }
+    throw error;
   }
 };
 

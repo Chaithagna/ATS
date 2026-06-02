@@ -13,9 +13,6 @@ const app = express();
 // Set trust proxy to enable correct IP tracking for rate limiting (especially behind reverse proxies like Vercel or Render)
 app.set('trust proxy', 1);
 
-// Establish database connection
-connectDB();
-
 // Global Middlewares
 app.use(cors({
   origin: '*', // Allow all client domain calls for deployment flexibility
@@ -76,14 +73,54 @@ app.use((err, req, res, next) => {
   });
 });
 
-const PORT = process.env.PORT || 5000;
-const server = app.listen(PORT, () => {
-  console.log(`[ATS Server] running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-});
+let server;
+
+const listenWithFallback = (initialPort) => {
+  const isDev = (process.env.NODE_ENV || 'development') !== 'production';
+
+  const tryListen = (port) => {
+    const candidate = app.listen(port, () => {
+      server = candidate;
+      console.log(`[ATS Server] running in ${process.env.NODE_ENV || 'development'} mode on port ${port}`);
+    });
+
+    candidate.once('error', (error) => {
+      if (error.code === 'EADDRINUSE' && isDev) {
+        const nextPort = Number(port) + 1;
+        console.warn(`[ATS Server] Port ${port} is in use. Retrying on ${nextPort}...`);
+        tryListen(nextPort);
+        return;
+      }
+
+      console.error(`[ATS Server] Failed to listen on port ${port}: ${error.message}`);
+      process.exit(1);
+    });
+  };
+
+  tryListen(initialPort);
+};
+
+const startServer = async () => {
+  try {
+    await connectDB();
+
+    const PORT = process.env.PORT || 5000;
+    listenWithFallback(PORT);
+  } catch (error) {
+    console.error('[ATS Server] Startup aborted because the database connection failed.');
+    process.exit(1);
+  }
+};
 
 // Graceful shut down
 process.on('unhandledRejection', (err) => {
   console.error(`[Fatal Shutdown Check] Unhandled Rejection: ${err.message}`);
   // Safe exit
-  server.close(() => process.exit(1));
+  if (server) {
+    server.close(() => process.exit(1));
+  } else {
+    process.exit(1);
+  }
 });
+
+startServer();
