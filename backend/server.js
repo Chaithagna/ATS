@@ -56,13 +56,13 @@ const apiLimiter = rateLimit({
 app.use('/api/', apiLimiter);
 
 // Mount Modular Express Routes
-app.use('/api/auth', require('./routes/authRoutes'));
-app.use('/api/resumes', require('./routes/resumeRoutes'));
-app.use('/api/analysis', require('./routes/analysisRoutes'));
-app.use('/api/recruiter', require('./routes/recruiterRoutes'));
+app.use(['/api/auth', '/auth'], require('./routes/authRoutes'));
+app.use(['/api/resumes', '/resumes'], require('./routes/resumeRoutes'));
+app.use(['/api/analysis', '/analysis'], require('./routes/analysisRoutes'));
+app.use(['/api/recruiter', '/recruiter'], require('./routes/recruiterRoutes'));
 
 // Welcome and status health checks
-app.get('/', (req, res) => {
+app.get(['/', '/api'], (req, res) => {
   res.json({
     success: true,
     name: 'AI ATS Resume Analyzer SaaS Engine',
