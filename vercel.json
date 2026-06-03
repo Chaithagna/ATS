@@ -9,5 +9,11 @@
       "source": "/(.*)",
       "destination": "/$1"
     }
+  ],
+  "experimentalServices": [
+    {
+      "src": "backend/server.js",
+      "use": "@vercel/node"
+    }
   ]
 }
