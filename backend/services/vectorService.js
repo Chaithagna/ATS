@@ -1,4 +1,4 @@
-const { GoogleGenAI } = require('@google/generative-ai');
+const { createGenAIClient } = require('./genaiClient');
 
 /**
  * Basic in-memory vector space model to compute authentic mathematical Cosine Similarity 
@@ -67,14 +67,18 @@ const getEmbedding = async (text, customApiKey = '') => {
   }
 
   try {
-    // Initialize Google Generative AI
-    const ai = new GoogleGenAI({ apiKey });
-    const model = ai.getGenerativeModel({ model: "text-embedding-004" });
+    // Initialize Google Generative AI (compatibility wrapper)
+    const ai = createGenAIClient(apiKey);
+    if (!ai) {
+      console.warn('[Vector Service] Generative AI client not available, returning null.');
+      return null;
+    }
+    const model = ai.getGenerativeModel ? ai.getGenerativeModel({ model: "text-embedding-004" }) : ai;
     const result = await model.embedContent(text);
-    return result.embedding.values;
+    return result?.embedding?.values || result;
   } catch (error) {
     console.error('[Vector Service Error] Failed live embedding generation:', error.message);
-    return Array.from({ length: 768 }, () => Math.random() * 2 - 1);
+    return null;
   }
 };
 
@@ -114,6 +118,11 @@ const compareSemanticSimilarity = async (resumeText, jdText, customGeminiKey = '
   try {
     const resumeVector = await getEmbedding(resumeText, apiKey);
     const jdVector = await getEmbedding(jdText, apiKey);
+
+    if (!resumeVector || !jdVector) {
+      console.warn('[Vector Service Compare] Live embedding failed. Falling back to Local Vector Space calculation.');
+      return LocalVectorSpace.calculateCosineSimilarity(resumeText, jdText);
+    }
 
     // Calculate Cosine Similarity of vectors
     let dotProduct = 0;

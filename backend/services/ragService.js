@@ -1,4 +1,4 @@
-const { GoogleGenAI } = require('@google/generative-ai');
+const { createGenAIClient, resolveGeminiModelName } = require('./genaiClient');
 const { getEmbedding } = require('./vectorService');
 
 /**
@@ -48,8 +48,8 @@ const retrieveRelevantChunks = async (chunks, query, topK = 3, apiKey = '') => {
 /**
  * RAG Generation Pipeline
  */
-const generateAISuggestions = async (resumeText, jdText, overallScore, customGeminiKey = '') => {
-  const apiKey = customGeminiKey || process.env.GEMINI_API_KEY;
+const generateAISuggestions = async (resumeText, jdText, overallScore, customGeminiKey = '', forceSandbox = false) => {
+  const apiKey = forceSandbox ? '' : (customGeminiKey || process.env.GEMINI_API_KEY);
 
   // Split and chunk the resume & JD
   const resumeChunks = chunkText(resumeText, 300, 50);
@@ -127,8 +127,13 @@ const generateAISuggestions = async (resumeText, jdText, overallScore, customGem
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
-    const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const ai = createGenAIClient(apiKey);
+    if (!ai) {
+      console.warn('[RAG Service] Generative AI client not available, returning sandbox suggestions.');
+      return generateAISuggestions(resumeText, jdText, overallScore, '', true);
+    }
+    const modelName = resolveGeminiModelName('gemini-2.0-flash');
+    const model = ai.getGenerativeModel ? ai.getGenerativeModel({ model: modelName }) : ai;
 
     const prompt = `
     You are an expert ATS (Applicant Tracking System) recruiter and AI talent consultant.
@@ -185,8 +190,35 @@ const generateAISuggestions = async (resumeText, jdText, overallScore, customGem
     Do not include any markdown wrappers (like \`\`\`json) or extra text. Return ONLY the raw JSON string.
     `;
 
-    const response = await model.generateContent(prompt);
-    const responseText = response.text().trim();
+    let response;
+    try {
+      response = await model.generateContent(prompt);
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : '';
+      const data = err && err.response && err.response.data ? err.response.data : null;
+      const text = JSON.stringify(data || msg);
+      console.error('[RAG Service LLM Error] Failed to generate AI content. Offloading to backup rules:', text);
+
+      const serialized = data ? JSON.stringify(data) : '';
+
+      // Detect invalid API key response from Google
+      if (msg.includes('API key not valid') || serialized.includes('API_KEY_INVALID')) {
+        const e = new Error('INVALID_API_KEY');
+        e.details = data || msg;
+        throw e;
+      }
+
+      // Detect quota / billing limits and fall back without crashing the request
+      if (msg.includes('Too Many Requests') || serialized.includes('Quota exceeded') || serialized.includes('RESOURCE_EXHAUSTED')) {
+        console.warn('[RAG Service] Gemini quota exceeded or billing limit reached; returning sandbox suggestions.');
+        return generateAISuggestions(resumeText, jdText, overallScore, '', true);
+      }
+
+      // Fallback to sandbox
+      return generateAISuggestions(resumeText, jdText, overallScore, '', true);
+    }
+
+    const responseText = (response && response.text) ? response.text().trim() : JSON.stringify(response).trim();
     
     // Parse response, remove possible markdown formatting if the model still outputs it
     const cleanJsonString = responseText
@@ -196,9 +228,13 @@ const generateAISuggestions = async (resumeText, jdText, overallScore, customGem
 
     return JSON.parse(cleanJsonString);
   } catch (error) {
+    // If it's an API key error, rethrow for route handler to return actionable response
+    if (error && error.message === 'INVALID_API_KEY') {
+      throw error;
+    }
     console.error('[RAG Service LLM Error] Failed to generate AI content. Offloading to backup rules:', error.message);
     // Return structured default schema
-    return generateAISuggestions(resumeText, jdText, overallScore, ''); // recurse with empty key to trigger sandbox fallback
+    return generateAISuggestions(resumeText, jdText, overallScore, '', true); // recurse with empty key to trigger sandbox fallback
   }
 };
 
@@ -214,8 +250,13 @@ const rewriteBulletPoint = async (textToRewrite, instructions, customGeminiKey =
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
-    const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const ai = createGenAIClient(apiKey);
+    if (!ai) {
+      console.warn('[RAG Bullet Rewrite] Generative AI client not available, returning sandbox rewrite.');
+      return `[Optimized] Achieved 45% increase in operational reliability by refactoring legacy logic to ${textToRewrite || 'modular endpoints'}, utilizing modern async pooling architectures as requested: ${instructions || 'highly detailed'}`;
+    }
+    const modelName = resolveGeminiModelName('gemini-2.0-flash');
+    const model = ai.getGenerativeModel ? ai.getGenerativeModel({ model: modelName }) : ai;
 
     const prompt = `
     You are an expert copywriter and tech recruiter. Rewrite the following resume snippet:
@@ -229,8 +270,25 @@ const rewriteBulletPoint = async (textToRewrite, instructions, customGeminiKey =
     3. Return ONLY the rewritten text without comments, markdown, or quotation marks.
     `;
 
-    const response = await model.generateContent(prompt);
-    return response.text().trim();
+    try {
+      const response = await model.generateContent(prompt);
+      return response.text().trim();
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : '';
+      const data = err && err.response && err.response.data ? err.response.data : null;
+      console.error('[RAG Bullet Rewrite Error] Failed, returning mock representation:', msg || JSON.stringify(data || ''));
+      const serialized = data ? JSON.stringify(data) : '';
+      if (msg.includes('API key not valid') || serialized.includes('API_KEY_INVALID')) {
+        const e = new Error('INVALID_API_KEY');
+        e.details = data || msg;
+        throw e;
+      }
+      if (msg.includes('Too Many Requests') || serialized.includes('Quota exceeded') || serialized.includes('RESOURCE_EXHAUSTED')) {
+        console.warn('[RAG Bullet Rewrite] Gemini quota exceeded or billing limit reached; returning sandbox rewrite.');
+        return `[Optimized Sandbox] Refactored ${textToRewrite} with enhanced technical indexing, yielding a 40% performance gain under high-concurrency simulation.`;
+      }
+      return `[Optimized Sandbox] Refactored ${textToRewrite} with enhanced technical indexing, yielding a 40% performance gain under high-concurrency simulation.`;
+    }
   } catch (error) {
     console.error('[RAG Bullet Rewrite Error] Failed, returning mock representation:', error.message);
     return `[Optimized Sandbox] Refactored ${textToRewrite} with enhanced technical indexing, yielding a 40% performance gain under high-concurrency simulation.`;
@@ -240,8 +298,8 @@ const rewriteBulletPoint = async (textToRewrite, instructions, customGeminiKey =
 /**
  * Generates custom cover letter based on parsed resume and job description
  */
-const generateCoverLetter = async (resumeText, jdText, customGeminiKey = '') => {
-  const apiKey = customGeminiKey || process.env.GEMINI_API_KEY;
+const generateCoverLetter = async (resumeText, jdText, customGeminiKey = '', forceSandbox = false) => {
+  const apiKey = forceSandbox ? '' : (customGeminiKey || process.env.GEMINI_API_KEY);
 
   if (!apiKey) {
     return `Dear Hiring Manager,
@@ -257,8 +315,13 @@ Job Applicant`;
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
-    const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const ai = createGenAIClient(apiKey);
+    if (!ai) {
+      console.warn('[Cover Letter] Generative AI client not available, returning sandbox cover letter.');
+      return `Dear Hiring Manager,\n\nI am writing to express my enthusiastic interest in the target role at your company. With a strong background in software engineering, backend API development, and distributed systems, I am eager to contribute to your dynamic team.\n\nIn reviewing your job specifications, I noticed a strong emphasis on scalable microservices and robust database management. Throughout my career, I have specialized in building robust architectures. For example, I have engineered custom database structures and optimized endpoint caches that slashed load times by 40%. Additionally, my experience matches your requirement for modern technical methodologies.\n\nI am eager to bring my technical expertise, action-oriented execution, and collaborative drive to your engineering division. Thank you for your time and consideration.\n\nSincerely,\nJob Applicant`;
+    }
+    const modelName = resolveGeminiModelName('gemini-2.0-flash');
+    const model = ai.getGenerativeModel ? ai.getGenerativeModel({ model: modelName }) : ai;
 
     const prompt = `
     Write an exceptionally compelling, professional, customized cover letter using the following Resume and Job Description.
@@ -273,11 +336,28 @@ Job Applicant`;
     Return ONLY the cover letter text. Do not wrap in markdown or headers.
     `;
 
-    const response = await model.generateContent(prompt);
-    return response.text().trim();
+    try {
+      const response = await model.generateContent(prompt);
+      return response.text().trim();
+    } catch (err) {
+      const msg = (err && err.message) ? err.message : '';
+      const data = err && err.response && err.response.data ? err.response.data : null;
+      console.error('[Cover Letter Error] Failed, returning standard letter:', msg || JSON.stringify(data || ''));
+      const serialized = data ? JSON.stringify(data) : '';
+      if (msg.includes('API key not valid') || serialized.includes('API_KEY_INVALID')) {
+        const e = new Error('INVALID_API_KEY');
+        e.details = data || msg;
+        throw e;
+      }
+      if (msg.includes('Too Many Requests') || serialized.includes('Quota exceeded') || serialized.includes('RESOURCE_EXHAUSTED')) {
+        console.warn('[Cover Letter] Gemini quota exceeded or billing limit reached; returning sandbox cover letter.');
+        return generateCoverLetter(resumeText, jdText, '', true);
+      }
+      return generateCoverLetter(resumeText, jdText, '', true); // trigger fallback
+    }
   } catch (error) {
     console.error('[Cover Letter Error] Failed, returning standard letter:', error.message);
-    return generateCoverLetter(resumeText, jdText, ''); // trigger fallback
+    return generateCoverLetter(resumeText, jdText, '', true); // trigger fallback
   }
 };
 

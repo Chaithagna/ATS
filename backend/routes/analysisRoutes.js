@@ -32,12 +32,21 @@ router.post('/process', protect, async (req, res) => {
 
     // 3. Generate context-aware AI suggestions via RAG architecture
     console.log('[RAG Pipeline] Retrieval triggers initiated.');
-    const aiData = await generateAISuggestions(
-      resume.extractedText, 
-      jobDescription, 
-      auditData.scores.overall, 
-      userGeminiKey
-    );
+    let aiData;
+    try {
+      aiData = await generateAISuggestions(
+        resume.extractedText,
+        jobDescription,
+        auditData.scores.overall,
+        userGeminiKey
+      );
+    } catch (err) {
+      if (err && err.message === 'INVALID_API_KEY') {
+        console.error('[RAG Pipeline] Invalid Gemini API key:', err.details || err.message);
+        return res.status(401).json({ success: false, error: 'Invalid Gemini API key. Please update your GEMINI_API_KEY in server environment or user settings.' });
+      }
+      throw err;
+    }
 
     // 4. Create and Save overall ATS report to Database
     const report = await Report.create({
@@ -134,12 +143,15 @@ router.post('/rewrite', protect, async (req, res) => {
     }
 
     const userGeminiKey = req.user.settings?.geminiKey || '';
-    const optimizedText = await rewriteBulletPoint(bulletText, instruction || 'Optimize for readability and impact.', userGeminiKey);
-
-    res.json({
-      success: true,
-      optimizedText
-    });
+    try {
+      const optimizedText = await rewriteBulletPoint(bulletText, instruction || 'Optimize for readability and impact.', userGeminiKey);
+      res.json({ success: true, optimizedText });
+    } catch (err) {
+      if (err && err.message === 'INVALID_API_KEY') {
+        return res.status(401).json({ success: false, error: 'Invalid Gemini API key. Please update your GEMINI_API_KEY in server environment or user settings.' });
+      }
+      throw err;
+    }
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -164,12 +176,15 @@ router.post('/coverletter', protect, async (req, res) => {
     }
 
     const userGeminiKey = req.user.settings?.geminiKey || '';
-    const coverLetter = await generateCoverLetter(resume.extractedText, jobDescription, userGeminiKey);
-
-    res.json({
-      success: true,
-      coverLetter
-    });
+    try {
+      const coverLetter = await generateCoverLetter(resume.extractedText, jobDescription, userGeminiKey);
+      res.json({ success: true, coverLetter });
+    } catch (err) {
+      if (err && err.message === 'INVALID_API_KEY') {
+        return res.status(401).json({ success: false, error: 'Invalid Gemini API key. Please update your GEMINI_API_KEY in server environment or user settings.' });
+      }
+      throw err;
+    }
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

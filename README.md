@@ -110,6 +110,19 @@ cp .env.example .env
 ```
 Update `.env` with your MongoDB URI. Live keys (Gemini, Pinecone) are optional. If undefined, Sandbox Mode activates instantly.
 
+### Gemini / Google AI Studio setup
+If you want live LLM responses instead of sandbox fallbacks:
+
+1. Create a Gemini API key in Google AI Studio or the Google Cloud Generative Language API console.
+2. Enable the Generative Language API on that project.
+3. Paste the key into `backend/.env` as `GEMINI_API_KEY=...`.
+4. Validate it from `backend` with:
+```bash
+node scripts/check_genai_key.js
+```
+
+If the key is invalid, the backend will stay up and return sandbox suggestions instead of failing the request.
+
 #### 2. Run Backend
 ```bash
 # Start server in development mode
