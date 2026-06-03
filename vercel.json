@@ -12,7 +12,7 @@
   ],
   "experimentalServices": {
     "api": {
-      "use": "@vercel/node",
+      "entrypoint": "backend/server.js",
       "routePrefix": "/api"
     }
   }
