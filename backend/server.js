@@ -4,8 +4,13 @@ const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
 const connectDB = require('./config/db');
 
+const path = require('path');
+
 // Load environment variables
 dotenv.config();
+if (!process.env.MONGO_URI) {
+  dotenv.config({ path: path.join(__dirname, '.env') });
+}
 
 // Initialize express app
 const app = express();
@@ -22,6 +27,20 @@ app.use(cors({
 
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
+
+const mongoose = require('mongoose');
+
+// Ensure DB is connected for serverless environments (like Vercel)
+app.use(async (req, res, next) => {
+  try {
+    if (mongoose.connection.readyState === 0) {
+      await connectDB();
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Rate Limiter to prevent brute force API scans
 const apiLimiter = rateLimit({
@@ -123,4 +142,8 @@ process.on('unhandledRejection', (err) => {
   }
 });
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+module.exports = app;
