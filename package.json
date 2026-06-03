@@ -7,7 +7,7 @@
     "backend"
   ],
   "scripts": {
-    "build": "npm run build --workspace=frontend",
+    "build": "npm --prefix frontend run build",
     "start": "node backend/server.js"
   }
 }
