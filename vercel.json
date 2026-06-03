@@ -10,10 +10,10 @@
       "destination": "/$1"
     }
   ],
-  "experimentalServices": [
-    {
+  "experimentalServices": {
+    "api": {
       "src": "backend/server.js",
       "use": "@vercel/node"
     }
-  ]
+  }
 }
