@@ -7,5 +7,27 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true,
+    proxy: {
+      '/api': {
+        target: process.env.BACKEND_URL || 'http://localhost:5000',
+        changeOrigin: true,
+        secure: false,
+      }
+    }
+  },
+  preview: {
+    port: 3000,
+    host: true,
+    proxy: {
+      '/api': {
+        target: process.env.BACKEND_URL || 'http://localhost:5000',
+        changeOrigin: true,
+        secure: false,
+      }
+    }
+  },
+  build: {
+    outDir: '../dist',
+    emptyOutDir: true,
   }
 })
